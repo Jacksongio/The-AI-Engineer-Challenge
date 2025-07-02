@@ -1,0 +1,94 @@
+.chatFormCard {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+  padding: 32px 28px 24px 28px;
+  max-width: 420px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.formLabel {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #222;
+  display: block;
+}
+
+.input, .textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 1rem;
+  margin-bottom: 8px;
+  background: #fafbfc;
+  transition: border 0.2s;
+}
+.input:focus, .textarea:focus {
+  border: 1.5px solid #0070f3;
+  outline: none;
+}
+
+.button {
+  background: linear-gradient(90deg, #0070f3 60%, #0051a3 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-top: 8px;
+}
+.button:disabled {
+  background: #b3c6e0;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #e00;
+  font-size: 0.98rem;
+  margin-top: 4px;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .chatFormCard {
+    padding: 18px 6vw 16px 6vw;
+    max-width: 98vw;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .chatFormCard {
+    background: #181c23;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+  }
+  .formLabel {
+    color: #e6e6e6;
+  }
+  .input, .textarea {
+    background: #232834;
+    color: #e6e6e6;
+    border: 1px solid #333a4a;
+  }
+  .input:focus, .textarea:focus {
+    border: 1.5px solid #60aaff;
+  }
+  .button {
+    background: linear-gradient(90deg, #1a5cff 60%, #003366 100%);
+    color: #fff;
+  }
+  .button:disabled {
+    background: #2a3550;
+    color: #aaa;
+  }
+  .error {
+    color: #ff6b6b;
+  }
+} 
