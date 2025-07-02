@@ -56,7 +56,7 @@ const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
       let data;
       try {
         data = JSON.parse(text);
-      } catch (jsonErr) {
+      } catch {
         setError('Server returned a non-JSON response: ' + text.slice(0, 200));
         setUploadStatus(null);
         return;
@@ -65,8 +65,12 @@ const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
         throw new Error(data.detail || 'Upload failed');
       }
       setUploadStatus('Upload successful!');
-    } catch (err: any) {
-      setError(err.message || 'PDF upload error');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || 'PDF upload error');
+      } else {
+        setError('PDF upload error');
+      }
       setUploadStatus(null);
     }
   };
@@ -106,8 +110,12 @@ const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
         onResponse(result);
       }
       setLoading(false);
-    } catch (err: any) {
-      setError(err.message || 'Unknown error');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || 'Unknown error');
+      } else {
+        setError('Unknown error');
+      }
       setLoading(false);
     }
   };
