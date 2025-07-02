@@ -17,6 +17,13 @@ const getApiUrl = () => {
   return '/api/chat';
 };
 
+const getUploadApiUrl = () => {
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return 'http://localhost:8000/api/upload_pdf';
+  }
+  return '/api/upload_pdf';
+};
+
 const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
   const [developerMessage, setDeveloperMessage] = useState('');
   const [userMessage, setUserMessage] = useState('');
@@ -24,12 +31,58 @@ const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+
+  const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setPdfFile(e.target.files[0]);
+      setUploadStatus(null);
+    }
+  };
+
+  const handlePdfUpload = async () => {
+    if (!pdfFile) return;
+    setUploadStatus('Uploading...');
+    setError(null);
+    const formData = new FormData();
+    formData.append('file', pdfFile);
+    try {
+      const response = await fetch(getUploadApiUrl(), {
+        method: 'POST',
+        body: formData,
+      });
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (jsonErr) {
+        setError('Server returned a non-JSON response: ' + text.slice(0, 200));
+        setUploadStatus(null);
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(data.detail || 'Upload failed');
+      }
+      setUploadStatus('Upload successful!');
+    } catch (err: any) {
+      setError(err.message || 'PDF upload error');
+      setUploadStatus(null);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
     onResponse('');
+    if (pdfFile && uploadStatus !== 'Upload successful!') {
+      await handlePdfUpload();
+      if (uploadStatus !== 'Upload successful!') {
+        setLoading(false);
+        return;
+      }
+    }
     try {
       const response = await fetch(getApiUrl(), {
         method: 'POST',
@@ -61,6 +114,13 @@ const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
 
   return (
     <form onSubmit={handleSubmit} className={styles.chatFormCard}>
+      {/* PDF Upload */}
+      <label className={styles.formLabel}>
+        Upload PDF
+        <input type="file" accept="application/pdf" onChange={handlePdfChange} className={styles.input} />
+      </label>
+      {uploadStatus && <div>{uploadStatus}</div>}
+      {/* Existing fields */}
       <label className={styles.formLabel}>
         Developer Message
         <textarea value={developerMessage} onChange={e => setDeveloperMessage(e.target.value)} required rows={2} className={styles.textarea} />
