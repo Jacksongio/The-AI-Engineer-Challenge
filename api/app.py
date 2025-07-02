@@ -1,5 +1,5 @@
 # Import required FastAPI components for building the API
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 # Import Pydantic for data validation and settings management
@@ -8,6 +8,9 @@ from pydantic import BaseModel
 from openai import OpenAI
 import os
 from typing import Optional
+import shutil
+from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
+from aimakerspace.vectordatabase import VectorDatabase
 
 # Initialize FastAPI application with a title
 app = FastAPI(title="OpenAI Chat API")
@@ -65,6 +68,39 @@ async def chat(request: ChatRequest):
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}
+
+# Global variable to store the vector database for the last uploaded PDF
+vector_db = None
+
+@app.post("/api/upload_pdf")
+async def upload_pdf(file: UploadFile = File(...)):
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
+    uploads_dir = "uploads"
+    os.makedirs(uploads_dir, exist_ok=True)
+    file_path = os.path.join(uploads_dir, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    # Index the PDF using aimakerspace
+    try:
+        loader = PDFLoader(file_path)
+        documents = loader.load_documents()  # List of extracted text
+        splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        chunks = []
+        for doc in documents:
+            for chunk in splitter.split(doc):
+                if len(chunk) <= 4000:  # Safety net
+                    chunks.append(chunk)
+        print(f"Number of chunks: {len(chunks)}")
+        print(f"Max chunk length: {max(len(chunk) for chunk in chunks) if chunks else 0}")
+        if chunks:
+            print(f"First chunk: {chunks[0][:200]}")
+        global vector_db
+        vector_db = VectorDatabase()
+        vector_db = await vector_db.abuild_from_list(chunks)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF indexing failed: {str(e)}")
+    return {"filename": file.filename, "message": "PDF uploaded and indexed successfully."}
 
 # Entry point for running the application directly
 if __name__ == "__main__":
