@@ -39,29 +39,35 @@ async def chat(request: ChatRequest):
     try:
         # Initialize OpenAI client with the provided API key
         client = OpenAI(api_key=request.api_key)
-        
+        global vector_db
+        # If a PDF is indexed, use RAG
+        if vector_db is not None:
+            # Retrieve top 3 relevant chunks from the PDF
+            relevant_chunks = vector_db.search_by_text(request.user_message, k=3, return_as_text=True)
+            context = "\n---\n".join(relevant_chunks)
+            rag_prompt = f"You are an assistant with access to the following PDF context. Use it to answer the user's question.\n\nContext:\n{context}\n\nUser question: {request.user_message}"
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant that answers questions using the provided PDF context."},
+                {"role": "user", "content": rag_prompt}
+            ]
+        else:
+            # Fallback to original chat behavior
+            messages = [
+                {"role": "developer", "content": request.developer_message},
+                {"role": "user", "content": request.user_message}
+            ]
         # Create an async generator function for streaming responses
         async def generate():
-            # Create a streaming chat completion request
             stream = client.chat.completions.create(
                 model=request.model,
-                messages=[
-                    {"role": "developer", "content": request.developer_message},
-                    {"role": "user", "content": request.user_message}
-                ],
-                stream=True  # Enable streaming response
+                messages=messages,
+                stream=True
             )
-            
-            # Yield each chunk of the response as it becomes available
             for chunk in stream:
                 if chunk.choices[0].delta.content is not None:
                     yield chunk.choices[0].delta.content
-
-        # Return a streaming response to the client
         return StreamingResponse(generate(), media_type="text/plain")
-    
     except Exception as e:
-        # Handle any errors that occur during processing
         raise HTTPException(status_code=500, detail=str(e))
 
 # Define a health check endpoint to verify API status
