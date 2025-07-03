@@ -12,12 +12,14 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 from typing import Optional
 import shutil
 from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
-from aimakerspace.vectordatabase import VectorDatabase
+from qdrant_client import QdrantClient
+from qdrant_client.http import models as qmodels
 from collections import Counter
 import nltk
 nltk.download('stopwords', quiet=True)
 from nltk.corpus import stopwords
 import string
+from aimakerspace.openai_utils.embedding import EmbeddingModel
 
 # Initialize FastAPI application with a title
 app = FastAPI(title="OpenAI Chat API")
@@ -50,23 +52,35 @@ async def chat(request: ChatRequest):
         if not api_key:
             raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable is not set on the backend.")
         client = OpenAI(api_key=api_key)
-        # Use the correct vector database for the requested PDF
-        vector_db = vector_dbs.get(request.pdf_filename)
-        if vector_db is not None:
-            # Retrieve top 3 relevant chunks from the PDF
-            relevant_chunks = vector_db.search_by_text(request.user_message, k=3, return_as_text=True)
-            context = "\n---\n".join(relevant_chunks)
-            rag_prompt = f"You are an assistant with access to the following PDF context. Use it to answer the user's question.\n\nContext:\n{context}\n\nUser question: {request.user_message}"
-            messages = [
-                {"role": "system", "content": "You are a helpful assistant that answers questions using the provided PDF context."},
-                {"role": "user", "content": rag_prompt}
-            ]
-        else:
-            # Fallback to original chat behavior
-            messages = [
-                {"role": "developer", "content": request.developer_message},
-                {"role": "user", "content": request.user_message}
-            ]
+        # Generate embedding for user query
+        embedder = EmbeddingModel()
+        query_embedding = embedder.get_embedding(request.user_message)
+        # Search Qdrant for relevant chunks for the selected PDF
+        qdrant_client = QdrantClient(
+            url=os.getenv("QDRANT_URL"),
+            api_key=os.getenv("QDRANT_API_KEY"),
+        )
+        collection_name = os.getenv("QDRANT_COLLECTION", "pdf_vectors")
+        search_result = qdrant_client.search(
+            collection_name=collection_name,
+            query_vector=query_embedding,
+            limit=3,
+            query_filter=qmodels.Filter(
+                must=[
+                    qmodels.FieldCondition(
+                        key="filename",
+                        match=qmodels.MatchValue(value=request.pdf_filename)
+                    )
+                ]
+            )
+        )
+        relevant_chunks = [hit.payload["chunk"] for hit in search_result]
+        context = "\n---\n".join(relevant_chunks)
+        rag_prompt = f"You are an assistant with access to the following PDF context. Use it to answer the user's question.\n\nContext:\n{context}\n\nUser question: {request.user_message}"
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant that answers questions using the provided PDF context."},
+            {"role": "user", "content": rag_prompt}
+        ]
         # Create an async generator function for streaming responses
         async def generate():
             stream = client.chat.completions.create(
@@ -86,8 +100,11 @@ async def chat(request: ChatRequest):
 async def health_check():
     return {"status": "ok"}
 
-# Dictionary to store vector databases for each uploaded PDF
-vector_dbs = {}
+qdrant_client = QdrantClient(
+    url=os.getenv("QDRANT_URL"),
+    api_key=os.getenv("QDRANT_API_KEY"),
+)
+collection_name = os.getenv("QDRANT_COLLECTION", "pdf_vectors")
 
 @app.post("/api/upload_pdf")
 async def upload_pdf(file: UploadFile = File(...)):
@@ -112,10 +129,42 @@ async def upload_pdf(file: UploadFile = File(...)):
         print(f"Max chunk length: {max(len(chunk) for chunk in chunks) if chunks else 0}")
         if chunks:
             print(f"First chunk: {chunks[0][:200]}")
-        # Store the vector database for this PDF by filename
-        vector_db = VectorDatabase()
-        vector_db = await vector_db.abuild_from_list(chunks)
-        vector_dbs[file.filename] = vector_db
+        # Recreate the collection to ensure it has the proper filename index
+        print("Recreating collection to ensure proper filename index...")
+        qdrant_client.recreate_collection(
+            collection_name=collection_name,
+            vectors_config=qmodels.VectorParams(
+                size=1536,  # for OpenAI embeddings
+                distance=qmodels.Distance.COSINE,
+            ),
+        )
+        # Create the filename payload index
+        qdrant_client.create_payload_index(
+            collection_name=collection_name,
+            field_name="filename",
+            field_type="keyword"
+        )
+        print(f"Collection '{collection_name}' recreated with filename index.")
+        # Generate embeddings for each chunk and upsert to Qdrant
+        embedder = EmbeddingModel()
+        embeddings = embedder.get_embeddings(chunks)
+        from uuid import uuid4
+        points = [
+            qmodels.PointStruct(
+                id=str(uuid4()),
+                vector=embedding,
+                payload={
+                    "filename": file.filename,
+                    "chunk": chunk,
+                    "chunk_index": i,
+                },
+            )
+            for i, (embedding, chunk) in enumerate(zip(embeddings, chunks))
+        ]
+        qdrant_client.upsert(
+            collection_name=collection_name,
+            points=points
+        )
         # --- Analytics Extraction ---
         # Combine all text for analytics
         all_text = " ".join(documents)
@@ -133,7 +182,13 @@ async def upload_pdf(file: UploadFile = File(...)):
         # --- End Analytics Extraction ---
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF indexing failed: {str(e)}")
-    return {"filename": file.filename, "message": "PDF uploaded and indexed successfully.", "analytics": analytics, "uploaded_filenames": list(vector_dbs.keys())}
+    # Get all filenames in the collection
+    search_result = qdrant_client.scroll(collection_name=collection_name, limit=1000)
+    filenames = set()
+    for point in search_result[0]:
+        if "filename" in point.payload:
+            filenames.add(point.payload["filename"])
+    return {"filename": file.filename, "message": "PDF uploaded and indexed successfully.", "analytics": analytics, "uploaded_filenames": list(filenames)}
 
 # Entry point for running the application directly
 if __name__ == "__main__":
