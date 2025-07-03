@@ -8,6 +8,9 @@ from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
+# Add current directory to Python path for aimakerspace imports
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 from typing import Optional
 import shutil
@@ -16,11 +19,23 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from collections import Counter
 import nltk
-nltk.download('stopwords', quiet=True)
+import tempfile
+
+# Set NLTK data path to writable directory for serverless
+nltk_data_dir = '/tmp/nltk_data'
+os.makedirs(nltk_data_dir, exist_ok=True)
+nltk.data.path.append(nltk_data_dir)
+
+# Download stopwords to the temp directory
+try:
+    nltk.download('stopwords', download_dir=nltk_data_dir, quiet=True)
+except Exception as e:
+    print(f"Warning: Could not download NLTK stopwords: {e}")
+    # Fallback to basic stopwords if download fails
+
 from nltk.corpus import stopwords
 import string
 from aimakerspace.openai_utils.embedding import EmbeddingModel
-
 # Initialize FastAPI application with a title
 app = FastAPI(title="OpenAI Chat API")
 
@@ -110,7 +125,8 @@ collection_name = os.getenv("QDRANT_COLLECTION", "pdf_vectors")
 async def upload_pdf(file: UploadFile = File(...)):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
-    uploads_dir = "uploads"
+    # Use /tmp for serverless compatibility (Vercel)
+    uploads_dir = "/tmp/uploads"
     os.makedirs(uploads_dir, exist_ok=True)
     file_path = os.path.join(uploads_dir, file.filename)
     with open(file_path, "wb") as buffer:
@@ -172,8 +188,12 @@ async def upload_pdf(file: UploadFile = File(...)):
         all_text = all_text.lower().translate(str.maketrans('', '', string.punctuation))
         # Tokenize
         words = all_text.split()
-        # Remove stopwords
-        stop_words = set(stopwords.words('english'))
+        # Remove stopwords (with fallback if not available)
+        try:
+            stop_words = set(stopwords.words('english'))
+        except LookupError:
+            # Fallback basic stopwords if NLTK data not available
+            stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'}
         filtered_words = [w for w in words if w not in stop_words and len(w) > 2]
         # Count frequencies
         word_counts = Counter(filtered_words)
