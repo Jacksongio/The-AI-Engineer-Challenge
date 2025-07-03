@@ -187,9 +187,10 @@ a.secondary {
 }
 
 .responseBox {
-  margin-top: 32px;
+  margin-top: 0;
+  margin-left: 32px;
   width: 100%;
-  max-width: 480px;
+  max-width: 800px;
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
@@ -222,4 +223,14 @@ a.secondary {
   .responsePlaceholder {
     color: #555e6b;
   }
+}
+
+.flexRow {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 32px;
+  width: 100%;
+  max-width: 1500px;
 }

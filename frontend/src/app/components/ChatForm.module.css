@@ -3,7 +3,7 @@
   border-radius: 16px;
   box-shadow: 0 4px 24px rgba(0,0,0,0.07);
   padding: 32px 28px 24px 28px;
-  max-width: 420px;
+  max-width: 700px;
   width: 100%;
   margin: 0 auto;
   display: flex;
@@ -20,6 +20,7 @@
 
 .input, .textarea {
   width: 100%;
+  max-width: 680px;
   padding: 10px 12px;
   border: 1px solid #e0e0e0;
   border-radius: 8px;
@@ -91,4 +92,8 @@
   .error {
     color: #ff6b6b;
   }
+}
+
+.responseWindow {
+  max-width: 700px;
 } 

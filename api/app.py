@@ -6,7 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 # Import OpenAI client for interacting with OpenAI's API
 from openai import OpenAI
+from dotenv import load_dotenv
 import os
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 from typing import Optional
 import shutil
 from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
@@ -36,16 +38,20 @@ class ChatRequest(BaseModel):
     developer_message: str  # Message from the developer/system
     user_message: str      # Message from the user
     model: Optional[str] = "gpt-4.1-mini"  # Optional model selection with default
-    api_key: str          # OpenAI API key for authentication
+    pdf_filename: str      # The filename of the PDF to use for RAG
 
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     try:
-        # Initialize OpenAI client with the provided API key
-        client = OpenAI(api_key=request.api_key)
-        global vector_db
-        # If a PDF is indexed, use RAG
+        # Initialize OpenAI client with the API key from the environment
+        api_key = os.getenv("OPENAI_API_KEY")
+        print("OPENAI_API_KEY:", api_key)
+        if not api_key:
+            raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable is not set on the backend.")
+        client = OpenAI(api_key=api_key)
+        # Use the correct vector database for the requested PDF
+        vector_db = vector_dbs.get(request.pdf_filename)
         if vector_db is not None:
             # Retrieve top 3 relevant chunks from the PDF
             relevant_chunks = vector_db.search_by_text(request.user_message, k=3, return_as_text=True)
@@ -80,8 +86,8 @@ async def chat(request: ChatRequest):
 async def health_check():
     return {"status": "ok"}
 
-# Global variable to store the vector database for the last uploaded PDF
-vector_db = None
+# Dictionary to store vector databases for each uploaded PDF
+vector_dbs = {}
 
 @app.post("/api/upload_pdf")
 async def upload_pdf(file: UploadFile = File(...)):
@@ -106,9 +112,10 @@ async def upload_pdf(file: UploadFile = File(...)):
         print(f"Max chunk length: {max(len(chunk) for chunk in chunks) if chunks else 0}")
         if chunks:
             print(f"First chunk: {chunks[0][:200]}")
-        global vector_db
+        # Store the vector database for this PDF by filename
         vector_db = VectorDatabase()
         vector_db = await vector_db.abuild_from_list(chunks)
+        vector_dbs[file.filename] = vector_db
         # --- Analytics Extraction ---
         # Combine all text for analytics
         all_text = " ".join(documents)
@@ -126,7 +133,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         # --- End Analytics Extraction ---
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF indexing failed: {str(e)}")
-    return {"filename": file.filename, "message": "PDF uploaded and indexed successfully.", "analytics": analytics}
+    return {"filename": file.filename, "message": "PDF uploaded and indexed successfully.", "analytics": analytics, "uploaded_filenames": list(vector_dbs.keys())}
 
 # Entry point for running the application directly
 if __name__ == "__main__":
