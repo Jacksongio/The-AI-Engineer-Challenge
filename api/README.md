@@ -31,6 +31,8 @@ cd api
 2. Start the server:
 ```bash
 python app.py
+or
+PYTHONPATH=. uvicorn api.app:app --host 0.0.0.0 --port 8000
 ```
 
 The server will start on `http://localhost:8000`
