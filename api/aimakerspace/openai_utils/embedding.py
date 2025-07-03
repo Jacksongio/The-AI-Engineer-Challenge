@@ -8,7 +8,7 @@ import asyncio
 
 class EmbeddingModel:
     def __init__(self, embeddings_model_name: str = "text-embedding-3-small"):
-        self.openai_api_key = "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"
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.async_client = AsyncOpenAI()
         self.client = OpenAI()
 
