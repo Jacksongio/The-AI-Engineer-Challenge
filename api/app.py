@@ -11,6 +11,11 @@ from typing import Optional
 import shutil
 from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
 from aimakerspace.vectordatabase import VectorDatabase
+from collections import Counter
+import nltk
+nltk.download('stopwords', quiet=True)
+from nltk.corpus import stopwords
+import string
 
 # Initialize FastAPI application with a title
 app = FastAPI(title="OpenAI Chat API")
@@ -104,9 +109,24 @@ async def upload_pdf(file: UploadFile = File(...)):
         global vector_db
         vector_db = VectorDatabase()
         vector_db = await vector_db.abuild_from_list(chunks)
+        # --- Analytics Extraction ---
+        # Combine all text for analytics
+        all_text = " ".join(documents)
+        # Lowercase, remove punctuation
+        all_text = all_text.lower().translate(str.maketrans('', '', string.punctuation))
+        # Tokenize
+        words = all_text.split()
+        # Remove stopwords
+        stop_words = set(stopwords.words('english'))
+        filtered_words = [w for w in words if w not in stop_words and len(w) > 2]
+        # Count frequencies
+        word_counts = Counter(filtered_words)
+        top_words = word_counts.most_common(20)
+        analytics = [{"word": w, "count": c} for w, c in top_words]
+        # --- End Analytics Extraction ---
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF indexing failed: {str(e)}")
-    return {"filename": file.filename, "message": "PDF uploaded and indexed successfully."}
+    return {"filename": file.filename, "message": "PDF uploaded and indexed successfully.", "analytics": analytics}
 
 # Entry point for running the application directly
 if __name__ == "__main__":

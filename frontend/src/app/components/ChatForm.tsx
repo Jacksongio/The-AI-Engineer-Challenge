@@ -24,15 +24,61 @@ const getUploadApiUrl = () => {
   return '/api/upload_pdf';
 };
 
+// Add a simple bar chart and word cloud component
+const BarChart: React.FC<{ data: { word: string; count: number }[] }> = ({ data }) => (
+  <div style={{ width: '100%', maxWidth: 400, margin: '16px 0' }}>
+    <h4>Top Words (Bar Chart)</h4>
+    <div style={{ display: 'flex', alignItems: 'flex-end', height: 120, gap: 4 }}>
+      {data.slice(0, 5).map(({ word, count }) => (
+        <div key={word} style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ background: '#4e79a7', height: count * 6, minHeight: 2, width: '100%' }} />
+          <div style={{ fontSize: 10 }}>{word}</div>
+          <div style={{ fontSize: 10 }}>{count}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const WordCloud: React.FC<{ data: { word: string; count: number }[] }> = ({ data }) => (
+  <div style={{ width: '100%', maxWidth: 400, margin: '16px 0' }}>
+    <h4>Word Cloud</h4>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      {data.map(({ word, count }) => (
+        <span
+          key={word}
+          style={{
+            fontSize: 12 + count * 2,
+            opacity: 0.7 + Math.min(count / 20, 0.3),
+            fontWeight: 600,
+            color: '#4e79a7',
+          }}
+        >
+          {word}
+        </span>
+      ))}
+    </div>
+  </div>
+);
+
 const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
-  const [developerMessage, setDeveloperMessage] = useState('');
+  const developerMessage = 'You are a pdf reader';
   const [userMessage, setUserMessage] = useState('');
+  const modelOptions = [
+    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+    { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+    { value: 'gpt-4', label: 'GPT-4' },
+    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+    // Add more models here as needed
+  ];
   const [model, setModel] = useState(defaultModel);
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [analytics, setAnalytics] = useState<{ word: string; count: number }[] | null>(null);
 
   const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -59,12 +105,14 @@ const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
       } catch {
         setError('Server returned a non-JSON response: ' + text.slice(0, 200));
         setUploadStatus(null);
+        setAnalytics(null);
         return;
       }
       if (!response.ok) {
         throw new Error(data.detail || 'Upload failed');
       }
       setUploadStatus('Upload successful!');
+      setAnalytics(data.analytics || null);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message || 'PDF upload error');
@@ -72,6 +120,7 @@ const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
         setError('PDF upload error');
       }
       setUploadStatus(null);
+      setAnalytics(null);
     }
   };
 
@@ -81,11 +130,9 @@ const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
     setLoading(true);
     onResponse('');
     if (pdfFile && uploadStatus !== 'Upload successful!') {
-      await handlePdfUpload();
-      if (uploadStatus !== 'Upload successful!') {
-        setLoading(false);
-        return;
-      }
+      setError('Please upload the PDF before sending your message.');
+      setLoading(false);
+      return;
     }
     try {
       const response = await fetch(getApiUrl(), {
@@ -127,25 +174,41 @@ const ChatForm: React.FC<ChatFormProps> = ({ onResponse }) => {
         Upload PDF
         <input type="file" accept="application/pdf" onChange={handlePdfChange} className={styles.input} />
       </label>
-      {uploadStatus && <div>{uploadStatus}</div>}
+      <button
+        type="button"
+        onClick={handlePdfUpload}
+        disabled={!Boolean(pdfFile) || uploadStatus === 'Upload successful!' || loading}
+        className={styles.button}
+        style={{ marginBottom: '8px' }}
+      >
+        {uploadStatus === 'Uploading...' ? 'Uploading...' : uploadStatus === 'Upload successful!' ? 'Uploaded!' : 'Upload PDF'}
+      </button>
+      {uploadStatus && uploadStatus !== 'Uploading...' && <div>{uploadStatus}</div>}
+      {/* Show analytics after upload */}
+      {analytics && (
+        <>
+          <BarChart data={analytics} />
+          <WordCloud data={analytics} />
+        </>
+      )}
       {/* Existing fields */}
-      <label className={styles.formLabel}>
-        Developer Message
-        <textarea value={developerMessage} onChange={e => setDeveloperMessage(e.target.value)} required rows={2} className={styles.textarea} />
-      </label>
       <label className={styles.formLabel}>
         User Message
         <textarea value={userMessage} onChange={e => setUserMessage(e.target.value)} required rows={2} className={styles.textarea} />
       </label>
       <label className={styles.formLabel}>
         Model
-        <input value={model} onChange={e => setModel(e.target.value)} placeholder={defaultModel} className={styles.input} />
+        <select value={model} onChange={e => setModel(e.target.value)} className={styles.input}>
+          {modelOptions.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
       </label>
       <label className={styles.formLabel}>
         OpenAI API Key
         <input value={apiKey} onChange={e => setApiKey(e.target.value)} type="password" required className={styles.input} />
       </label>
-      <button type="submit" disabled={loading} className={styles.button}>
+      <button type="submit" disabled={loading || (Boolean(pdfFile) && uploadStatus !== 'Upload successful!')} className={styles.button}>
         {loading ? 'Sending...' : 'Send'}
       </button>
       {error && <div className={styles.error}>{error}</div>}
